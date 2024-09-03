@@ -25,6 +25,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <set>
 
 namespace edupals
 {
@@ -48,10 +49,25 @@ namespace edupals
 
         int run();
 
+        pkgCache::PkgIterator find_package(std::string pkgname);
+        std::string resolve_provide(std::string prvname);
+        bool is_virtual(pkgCache::PkgIterator pkg);
         void print_help();
 
         protected:
 
         std::vector<std::string> m_args;
+
+        pkgCache* cache;
+
+        std::map <std::string, std::string> bootstrap;
+        std::map <std::string, std::string> depmap;
+        std::map <std::string, std::vector <std::string> >prvmap;
+        std::map <std::string, std::string> virtuals;
+        std::vector <pkgCache::DepIterator> multiples;
+
+        std::vector <std::string> targets;
+        std::set<std::string> banned_targets;
+
     };
 }

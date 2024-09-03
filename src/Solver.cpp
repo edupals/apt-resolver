@@ -22,8 +22,6 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
-#include <vector>
-#include <set>
 
 using namespace edupals;
 
@@ -38,8 +36,7 @@ Solver::Solver(int argc,char* argv[])
 
 int Solver::run()
 {
-    vector <string> targets;
-    set<string> bad_targets;
+
 
     bool dump_provide = false;
     bool add_bootstrap = false;
@@ -92,12 +89,117 @@ int Solver::run()
                     break;
 
                 case Option::UseBanned:
-                    bad_targets.insert(arg);
+                    banned_targets.insert(arg);
+                    break;
+
+                default:
                     break;
             }
     }
 
+    pkgInitConfig(*_config);
+    pkgInitSystem(*_config, _system);
+
+    pkgCacheFile cache_file;
+    cache = cache_file.GetPkgCache();
+
+    /* building bootstrap and provide map */
+    clog << "* Building cache..." << endl;
+
+    for (pkgCache::PkgIterator pkg = cache->PkgBegin(); !pkg.end(); pkg++) {
+
+        if (is_virtual(pkg)) {
+            continue;
+        }
+
+        //we just take first available version
+        pkgCache::VerIterator ver = pkg.VersionList();
+
+        if (ver->Priority == pkgCache::State::Required ||
+            ver->Priority == pkgCache::State::Important) {
+
+            bootstrap[pkg.Name()] = ver.VerStr();
+        }
+
+        for (pkgCache::PrvIterator prv = ver.ProvidesList(); !prv.end(); prv++) {
+
+            pkgCache::PkgIterator owner = prv.OwnerPkg();
+
+            string pname = prv.Name();
+            string oname = pkg.Name();
+
+            if (pname != oname) {
+                prvmap[pname].push_back(oname);
+            }
+        }
+    }
+
+    if (compute_bootstrap) {
+        //ignore add bootsrap option
+        add_bootstrap = false;
+        clog<<"* Adding bootstrap packages..."<<endl;
+
+        for (std::pair<string,string> package : bootstrap) {
+            targets.push_back(package.first);
+        }
+    }
+
+    for (string out:targets) {
+        cout<<out<<" ";
+    }
+    cout<<endl;
+
     return 0;
+}
+
+pkgCache::PkgIterator Solver::find_package(string pkgname)
+{
+    pkgCache::PkgIterator pkg = cache->FindPkg(pkgname);
+
+    if (pkg.end()) {
+        throw runtime_error("package does not exists");
+    }
+
+    return pkg;
+}
+
+string Solver::resolve_provide(string prvname)
+{
+    string ret = "";
+
+    if (virtuals.find(prvname) == virtuals.end()) {
+
+        if (prvmap.find(prvname) != prvmap.end()) {
+            for (string s:prvmap[prvname]) {
+                if (depmap.find(s) != depmap.end()) {
+                    ret = s;
+                    break;
+                }
+            }
+
+            if (ret == "") {
+                ret = prvmap[prvname][0];
+            }
+        }
+
+        virtuals[prvname] = ret;
+    }
+    else {
+        ret = virtuals[prvname];
+    }
+
+    if (ret == "") {
+        throw runtime_error ("Could not find provide " + prvname);
+    }
+
+    return ret;
+}
+
+bool Solver::is_virtual(pkgCache::PkgIterator pkg)
+{
+    pkgCache::VerIterator ver = pkg.VersionList();
+
+    return (ver.end());
 }
 
 void Solver::print_help()
