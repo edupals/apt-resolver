@@ -17,13 +17,41 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "Solver.hpp"
+#include <apt-pkg/init.h>
+#include <apt-pkg/cachefile.h>
+#include <apt-pkg/pkgcache.h>
+#include <apt-pkg/pkgsystem.h>
 
-using namespace std;
+#include <string>
+#include <map>
+#include <vector>
 
-int main(int argc,char* argv[])
+namespace edupals
 {
-    edupals::Solver solver(argc,argv);
+    enum class Option
+    {
+        None = 0,
+        UseInput = 1,
+        UseOutput = 2,
+        UseBanned = 4,
+        Verbose = 8,
+        DumpProvide = 16,
+        AddBootstrap = 32,
+        ComputeBootstrap = 64
+    };
 
-    return solver.run();
+    class Solver
+    {
+        public:
+
+        Solver(int argc,char* argv[]);
+
+        int run();
+
+        void print_help();
+
+        protected:
+
+        std::vector<std::string> m_args;
+    };
 }
