@@ -50,6 +50,7 @@ namespace edupals
         int run();
 
         pkgCache::PkgIterator find_package(std::string pkgname);
+        void build(pkgCache::VerIterator ver, int depth);
         std::string resolve_provide(std::string prvname);
         bool is_virtual(pkgCache::PkgIterator pkg);
         void print_help();
@@ -67,6 +68,7 @@ namespace edupals
         std::vector <pkgCache::DepIterator> multiples;
 
         std::vector <std::string> targets;
+        std::vector <std::string> bad_targets;
         std::set<std::string> banned_targets;
 
     };

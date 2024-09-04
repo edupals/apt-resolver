@@ -144,9 +144,222 @@ int Solver::run()
         }
     }
 
-    for (string out:targets) {
-        cout<<out<<" ";
+     //main targets
+    for (string target:targets) {
+        pkgCache::PkgIterator pkg;
+        string vname;
+
+        try {
+            pkg = find_package(target);
+        }
+        catch (runtime_error* e) {
+
+            //package does not exists
+            bad_targets.push_back(target);
+            continue;
+        }
+
+        if (is_virtual(pkg)) {
+            try {
+                vname = resolve_provide(target);
+            }
+            catch (runtime_error* e) {
+
+                //no one provide this virtual package
+                bad_targets.push_back(target);
+                continue;
+            }
+
+            //using provided name
+            pkg = find_package(vname);
+        }
+
+        depmap[pkg.Name ()] = "";
+        clog << "[ 0]->" << pkg.Name() << endl;
+        build (pkg.VersionList(), 1);
     }
+
+     map <string,pkgCache::DepIterator> newdep;
+
+    /* solving multiple choices */
+    recompute_multiples:
+
+    clog << "* multiple choices:" << endl;
+
+    for (pkgCache::DepIterator q:multiples) {
+        pkgCache::DepIterator dep = q;
+
+        clog << "* (";
+
+        while (true) {
+            string pkgname = dep.TargetPkg().Name();
+            clog << pkgname;
+
+            if ((dep->CompareOp & pkgCache::Dep::Or) !=
+                pkgCache::Dep::Or) {
+                break;
+            }
+
+            dep++;
+            clog << " | ";
+        }
+        clog << ")" << endl;
+    }
+
+    for (pkgCache::DepIterator q:multiples) {
+        pkgCache::DepIterator dep = q;
+
+        bool found = false;
+
+        while (true) {
+
+            string pkgname = dep.TargetPkg().Name();
+
+            if (depmap.find(pkgname) != depmap.end()) {
+                clog << "Using " << pkgname << " already included" << endl;
+
+                found = true;
+                break;
+            }
+
+            if (bootstrap.find(pkgname) != bootstrap.end()) {
+                clog << "Using " << pkgname << " from bootstrap" << endl;
+                found = true;
+                break;
+            }
+
+            if ((dep->CompareOp & pkgCache::Dep::Or) !=
+                pkgCache::Dep::Or) {
+                break;
+            }
+
+            dep++;
+        }
+
+        if (!found) {
+
+            /*
+                no choice has be done, let's look for a
+                not banned option
+                */
+
+            pkgCache::DepIterator t = q;
+
+            while (true) {
+
+                string pkgname = t.TargetPkg().Name();
+
+                if (banned_targets.find(pkgname) == banned_targets.end()) {
+                    if (newdep.find(pkgname) == newdep.end()) {
+                        clog << "Adding " << pkgname << endl;
+                        newdep[pkgname] = t;
+                        break;
+                    }
+                    else {
+                        //already queued for resolve
+                        break;
+                    }
+                }
+                else {
+                    clog << "Avoiding " << pkgname << endl;
+                }
+
+                if ((t->CompareOp & pkgCache::Dep::Or) !=
+                    pkgCache::Dep::Or) {
+                    break;
+                }
+
+                t++;
+            }
+        }
+    }
+
+    multiples.clear ();
+
+    for (pair < string, pkgCache::DepIterator > q:newdep) {
+        clog << "* RECOMPUTING: " << q.first << endl;
+
+        pkgCache::PkgIterator pkg = q.second.TargetPkg();
+
+        if (is_virtual(pkg)) {
+            try {
+                string pkgname = pkg.Name();
+                string vname = resolve_provide(pkgname);
+                clog << pkgname << " is a virtual package, using " <<
+                    vname << endl;
+
+                if (bootstrap.find(vname) == bootstrap.end()) {
+                    if (depmap.find(vname) == depmap.end()) {
+                        pkgCache::PkgIterator provider = find_package(vname);
+
+                        depmap[vname] = "";
+                        build (provider.VersionList(), 0);
+                    }
+                }
+            }
+            catch (runtime_error* e) {
+                clog << "Could not find a provide for: " << pkg.Name() << endl;
+                clog << pkg.Name() << " has been banned" << endl;
+                banned_targets.insert(pkg.Name());
+                multiples.push_back(q.second);
+            }
+        }
+        else {
+            depmap[pkg.Name()] = "";
+            build (pkg.VersionList(), 0);
+        }
+    }
+
+    if (newdep.size() > 0) {
+        newdep.clear();
+        goto recompute_multiples;
+    }
+
+    //does it ever happen?
+    clog << "Missing multiples:" << multiples.size() << endl;
+
+    if (bad_targets.size() > 0) {
+        clog << "Bad inputs:" << endl;
+
+        for (string target:bad_targets) {
+            clog << "* " << target << endl;
+        }
+    }
+
+    //bootstrap count is included too
+    int total = depmap.size();
+    if (add_bootstrap) {
+        total += bootstrap.size();
+    }
+
+    clog << "Total:" << total << endl;
+
+    if (dump_provide) {
+        if (prvmap.size () > 0) {
+            clog << "Provide : Provided from" << endl;
+
+            for (pair < string, vector < string > >p:prvmap) {
+                clog << "* " << p.first << " : ";
+                for (string s:p.second) {
+                    clog << s << " ";
+                }
+                clog << endl;
+            }
+            clog << "Total provides: " << prvmap.size() << endl;
+        }
+    }
+
+    cout<<"output:";
+    for (pair <string,string> q:depmap) {
+        cout << q.first << " ";
+    }
+
+    if (add_bootstrap) {
+        for (pair <string,string> q:bootstrap) {
+            cout << q.first << " ";
+        }
+    }
+
     cout<<endl;
 
     return 0;
@@ -161,6 +374,87 @@ pkgCache::PkgIterator Solver::find_package(string pkgname)
     }
 
     return pkg;
+}
+
+void Solver::build(pkgCache::VerIterator ver, int depth)
+{
+    bool last_or = false;
+
+    for (pkgCache::DepIterator dep = ver.DependsList(); !dep.end(); dep++) {
+
+        if (dep->Type == pkgCache::Dep::Depends ||
+            dep->Type == pkgCache::Dep::Recommends ||
+            dep->Type == pkgCache::Dep::PreDepends) {
+
+            //deferred resolution of multiple choices
+            if ((dep->CompareOp & pkgCache::Dep::Or) ==
+            pkgCache::Dep::Or) {
+                if (!last_or) {
+                    last_or = true;
+                    multiples.push_back(dep);
+                }
+                continue;
+            }
+            else {
+                if (last_or) {
+                    last_or = false;
+                    continue;
+                }
+            }
+
+            pkgCache::PkgIterator pkg = dep.TargetPkg();
+            string pkgname = pkg.Name();
+
+            if (is_virtual(pkg)) {
+                try {
+                    string vname = resolve_provide (pkgname);
+                    clog << pkgname <<
+                        " is a virtual package, using " << vname << endl;
+
+                    if (bootstrap.find(vname) == bootstrap.end()) {
+                        if (depmap.find(vname) == depmap.end()) {
+                            pkgCache::PkgIterator provider = find_package(vname);
+
+                            depmap[vname] = "";
+                            clog << "[" << setw (2) << depth << "]";
+                            for (int n = 0; n < depth; n++) {
+                                cout << "-";
+                            }
+                            clog << "->" << vname << endl;
+                            build (provider.VersionList(), depth + 1);
+                        }
+                    }
+                }
+                catch (runtime_error* e) {
+                    banned_targets.insert(pkgname);
+                }
+            }
+            else {
+                if (depmap.find(pkgname) == depmap.end()) {
+                    for (pkgCache::VerIterator ver =
+                            pkg.VersionList(); !ver.end(); ver++) {
+
+                        if (dep.IsSatisfied(ver)) {
+
+                            /* check against bootstrap package list */
+                            if (bootstrap.find(pkgname) ==
+                                bootstrap.end()) {
+                                depmap[pkgname] = ver.VerStr();
+                                clog << "[" << setw (2) << depth << "]";
+
+                                for (int n = 0; n < depth; n++) {
+                                    clog << "-";
+                                }
+                                clog << "->" << pkgname << endl;
+                                build (ver, depth + 1);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 string Solver::resolve_provide(string prvname)
