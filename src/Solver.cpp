@@ -41,6 +41,7 @@ int Solver::run()
     bool dump_provide = false;
     bool add_bootstrap = false;
     bool compute_bootstrap = false;
+    bool use_system = false;
     Option option = Option::None;
 
     if (m_args.size() == 0) {
@@ -82,6 +83,11 @@ int Solver::run()
                 continue;
             }
 
+            if (arg == "-s") {
+                use_system = true;
+                continue;
+            }
+
             switch (option) {
 
                 case Option::UseInput:
@@ -120,6 +126,14 @@ int Solver::run()
 
             bootstrap[pkg.Name()] = ver.VerStr();
         }
+        else {
+            if (use_system) {
+                pkgCache::VerIterator cver = pkg.CurrentVer();
+                if (!cver.end()) {
+                    bootstrap[pkg.Name()] = cver.VerStr();
+                }
+            }
+        }
 
         for (pkgCache::PrvIterator prv = ver.ProvidesList(); !prv.end(); prv++) {
 
@@ -132,6 +146,9 @@ int Solver::run()
                 prvmap[pname].push_back(oname);
             }
         }
+
+
+
     }
 
     if (compute_bootstrap) {
@@ -184,12 +201,12 @@ int Solver::run()
     /* solving multiple choices */
     recompute_multiples:
 
-    clog << "* multiple choices:" << endl;
+    clog << "* Solving multiple choices..." << endl;
 
     for (pkgCache::DepIterator q:multiples) {
         pkgCache::DepIterator dep = q;
 
-        clog << "* (";
+        clog << " (";
 
         while (true) {
             string pkgname = dep.TargetPkg().Name();
@@ -261,7 +278,7 @@ int Solver::run()
                     }
                 }
                 else {
-                    clog << "Avoiding " << pkgname << endl;
+                    clog << "Avoiding banned " << pkgname << endl;
                 }
 
                 if ((t->CompareOp & pkgCache::Dep::Or) !=
@@ -277,7 +294,7 @@ int Solver::run()
     multiples.clear ();
 
     for (pair < string, pkgCache::DepIterator > q:newdep) {
-        clog << "* RECOMPUTING: " << q.first << endl;
+        clog << "Recomputing " << q.first << endl;
 
         pkgCache::PkgIterator pkg = q.second.TargetPkg();
 
@@ -297,7 +314,7 @@ int Solver::run()
                     }
                 }
             }
-            catch (runtime_error* e) {
+            catch (std::exception& e) {
                 clog << "Could not find a provide for: " << pkg.Name() << endl;
                 clog << pkg.Name() << " has been banned" << endl;
                 banned_targets.insert(pkg.Name());
@@ -504,6 +521,7 @@ void Solver::print_help()
 
     cout << "Available options:" << endl;
     cout << "-i <targets>\tInput packages" << endl;
+    cout << "-s Takes system packages as dependency" << endl;
     cout << "-d Adds bootstrap to output list" << endl;
     cout << "-c Adds bootstrap to output list recomputing dependency tree. This will ignore -d" << endl;
     cout << "-b <targets>\tPackages to avoid" << endl;

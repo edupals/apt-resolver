@@ -38,7 +38,8 @@ namespace edupals
         Verbose = 8,
         DumpProvide = 16,
         AddBootstrap = 32,
-        ComputeBootstrap = 64
+        ComputeBootstrap = 64,
+        UseSystem = 128
     };
 
     class Solver
@@ -62,6 +63,7 @@ namespace edupals
         pkgCache* cache;
 
         std::map <std::string, std::string> bootstrap;
+        std::map <std::string, std::string> system;
         std::map <std::string, std::string> depmap;
         std::map <std::string, std::vector <std::string> >prvmap;
         std::map <std::string, std::string> virtuals;
