@@ -147,8 +147,6 @@ int Solver::run()
             }
         }
 
-
-
     }
 
     if (compute_bootstrap) {
@@ -164,12 +162,12 @@ int Solver::run()
      //main targets
     for (string target:targets) {
         pkgCache::PkgIterator pkg;
-        string vname;
+        string pkgname;
 
         try {
             pkg = find_package(target);
         }
-        catch (runtime_error* e) {
+        catch (std::exception& e) {
 
             //package does not exists
             bad_targets.push_back(target);
@@ -178,9 +176,9 @@ int Solver::run()
 
         if (is_virtual(pkg)) {
             try {
-                vname = resolve_provide(target);
+                pkgname = resolve_provide(target);
             }
-            catch (runtime_error* e) {
+            catch (std::exception& e) {
 
                 //no one provide this virtual package
                 bad_targets.push_back(target);
@@ -188,12 +186,17 @@ int Solver::run()
             }
 
             //using provided name
-            pkg = find_package(vname);
+            pkg = find_package(pkgname);
+        }
+        else {
+            pkgname = pkg.Name();
         }
 
-        depmap[pkg.Name ()] = "";
-        clog << "[ 0]->" << pkg.Name() << endl;
-        build (pkg.VersionList(), 1);
+        if (bootstrap.find(pkgname) == bootstrap.end()) {
+            depmap[pkgname] = "";
+            clog << "[ 0]->" << pkgname << endl;
+            build (pkg.VersionList(), 1);
+        }
     }
 
      map <string,pkgCache::DepIterator> newdep;
@@ -442,7 +445,7 @@ void Solver::build(pkgCache::VerIterator ver, int depth)
                         }
                     }
                 }
-                catch (runtime_error* e) {
+                catch (std::exception& e) {
                     banned_targets.insert(pkgname);
                 }
             }
